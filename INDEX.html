@@ -1,0 +1,170 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SHOP CURTAIN</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  text-align: center;
+  background: #f1f4f8;
+  padding: 20px;
+}
+main {
+  max-width: 420px;
+  margin: auto;
+  background: white;
+  padding: 22px;
+  border-radius: 16px;
+}
+input {
+  width: 95%;
+  padding: 10px;
+  margin: 6px 0 12px;
+  box-sizing: border-box;
+}
+label { display: block; text-align: left; }
+button {
+  width: 100%;
+  padding: 16px;
+  margin: 8px 0;
+  color: white;
+  border: 0;
+  border-radius: 10px;
+  font-size: 20px;
+}
+.open { background: #16803c; }
+.stop { background: #bd2525; }
+.close { background: #2457c5; }
+.connect { background: #424b57; }
+button:disabled { opacity: .45; }
+#status {
+  padding: 12px;
+  background: #edf0f4;
+  overflow-wrap: anywhere;
+}
+</style>
+</head>
+<body>
+<main>
+<h1>SHOP CURTAIN</h1>
+<p id="status">Not connected</p>
+
+<label>EMQX Host</label>
+<input id="host" value="l19d3132.ala.asia-southeast1.emqxsl.com">
+
+<label>WebSocket Port</label>
+<input id="port" value="8084">
+
+<label>MQTT Username</label>
+<input id="username" value="SHOP_CURTAIN_USER">
+
+<label>MQTT Password</label>
+<input id="password" type="password" placeholder="Enter your MQTT password">
+
+<label>Command Topic</label>
+<input id="cmdTopic" value="shop-curtain/command">
+
+<label>Status Topic</label>
+<input id="statusTopic" value="shop-curtain/status">
+
+<button class="connect" id="connect">CONNECT</button>
+<hr>
+<button class="open" data-cmd="open" disabled>OPEN</button>
+<button class="stop" data-cmd="stop" disabled>STOP</button>
+<button class="close" data-cmd="close" disabled>CLOSE</button>
+
+<p><small>Keep motor power disconnected during communication testing. Use a dedicated MQTT account with restricted topic permissions.</small></p>
+</main>
+
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script>
+let client = null;
+let connected = false;
+
+const status = document.getElementById("status");
+const buttons = document.querySelectorAll("[data-cmd]");
+
+function enableButtons(enabled) {
+  buttons.forEach(b => b.disabled = !enabled);
+}
+
+document.getElementById("connect").onclick = function() {
+  if (client) client.end(true);
+  connected = false;
+  enableButtons(false);
+
+  const host = document.getElementById("host").value.trim();
+  const port = document.getElementById("port").value.trim();
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("password").value;
+  const statusTopic = document.getElementById("statusTopic").value.trim();
+
+  if (!host || !port || !username || !password) {
+    status.textContent = "Enter all connection details.";
+    return;
+  }
+
+  if (!window.mqtt) {
+    status.textContent = "MQTT library unavailable. Check internet and reload.";
+    return;
+  }
+
+  status.textContent = "Connecting to EMQX...";
+
+  client = mqtt.connect("wss://" + host + ":" + port + "/mqtt", {
+    username: username,
+    password: password,
+    clientId: "shop-curtain-web-" +
+      Math.random().toString(16).slice(2, 10),
+    clean: true,
+    connectTimeout: 10000,
+    reconnectPeriod: 3000
+  });
+
+  client.on("connect", function() {
+    connected = true;
+    enableButtons(true);
+    status.textContent = "MQTT connected. Waiting for status...";
+    client.subscribe(statusTopic);
+  });
+
+  client.on("message", function(topic, message) {
+    status.textContent = "Received: " + message.toString();
+  });
+
+  client.on("reconnect", function() {
+    connected = false;
+    enableButtons(false);
+    status.textContent = "Reconnecting...";
+  });
+
+  client.on("close", function() {
+    connected = false;
+    enableButtons(false);
+  });
+
+  client.on("error", function(error) {
+    status.textContent = "MQTT error: " + error.message;
+  });
+};
+
+buttons.forEach(function(button) {
+  button.onclick = function() {
+    if (!client || !connected) return;
+
+    const topic = document.getElementById("cmdTopic").value.trim();
+    const command = button.dataset.cmd;
+
+    client.publish(topic, command, { qos: 0, retain: false }, function(error) {
+      status.textContent = error
+        ? "Send failed: " + error.message
+        : "Command sent: " + command.toUpperCase();
+    });
+  };
+});
+</script>
+</body>
+</html>
