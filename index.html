@@ -1,103 +1,202 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SHOP CURTAIN</title>
-<style>
-body{font-family:Arial;text-align:center;background:#f1f4f8;padding:25px 15px}
-main{max-width:420px;margin:auto;background:white;padding:22px;border-radius:18px}
-h1{font-size:30px}
-#status{font-size:14px;color:#555}
-button{display:block;width:100%;padding:24px;margin:14px 0;border:0;border-radius:12px;color:white;font-size:25px;font-weight:bold}
-button:disabled{opacity:.4}
-.open{background:#16803c}
-.stop{background:#bd2525}
-.close{background:#2457c5}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SHOP CURTAIN</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 25px 15px;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #f1f4f8;
+    }
+
+    main {
+      max-width: 460px;
+      margin: 25px auto;
+      padding: 25px 22px;
+      background: white;
+      border-radius: 18px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+    }
+
+    h1 {
+      font-size: 30px;
+      margin: 5px 0 20px;
+      color: #171717;
+    }
+
+    #status {
+      min-height: 22px;
+      margin-bottom: 18px;
+      font-size: 14px;
+      color: #555;
+      overflow-wrap: anywhere;
+    }
+
+    button {
+      display: block;
+      width: 100%;
+      padding: 23px 15px;
+      margin: 14px 0;
+      border: 0;
+      border-radius: 12px;
+      color: white;
+      font-size: 24px;
+      font-weight: bold;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .open {
+      background: #16803c;
+    }
+
+    .stop {
+      background: #bd2525;
+    }
+
+    .close {
+      background: #2457c5;
+    }
+
+    #pinButton {
+      margin-top: 20px;
+      padding: 12px;
+      font-size: 15px;
+      color: #333;
+      background: #e8edf4;
+    }
+
+    .note {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.5;
+    }
+  </style>
 </head>
+
 <body>
-<main>
-<h1>SHOP CURTAIN</h1>
-<p id="status">Connecting...</p>
-<button class="open" data-cmd="open" disabled>OPEN</button>
-<button class="stop" data-cmd="stop" disabled>STOP</button>
-<button class="close" data-cmd="close" disabled>CLOSE</button>
-</main>
+  <main>
+    <h1>SHOP CURTAIN</h1>
 
-<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-<script>
-const host="l19d3132.ala.asia-southeast1.emqxsl.com";
-const username="SHOP_CURTAIN_USER";
-const cmdTopic="shop-curtain/command";
-const statusTopic="shop-curtain/status";
-const status=document.getElementById("status");
-const buttons=[...document.querySelectorAll("[data-cmd]")];
-let client=null;
-let connected=false;
+    <p id="status" role="status" aria-live="polite">
+      Enter your PIN to begin.
+    </p>
 
-function enable(on){buttons.forEach(b=>b.disabled=!on)}
+    <button class="open" data-command="open">OPEN</button>
+    <button class="stop" data-command="stop">STOP</button>
+    <button class="close" data-command="close">CLOSE</button>
 
-let password=null;
-try{password=localStorage.getItem("shopCurtainPassword")}catch(e){}
+    <button id="pinButton">Change PIN</button>
 
-if(!password){
-  password=prompt("Enter your SHOP CURTAIN MQTT password once on this device:");
-  if(password){
-    try{localStorage.setItem("shopCurtainPassword",password)}catch(e){}
-  }
-}
+    <p class="note">
+      Use STOP to stop movement. Always supervise the curtain.
+    </p>
+  </main>
 
-if(password){
-  status.textContent="Connecting...";
-  client=mqtt.connect("wss://"+host+":8084/mqtt",{
-    username:username,
-    password:password,
-    clientId:"shop-curtain-"+Math.random().toString(16).slice(2,10),
-    clean:true,
-    connectTimeout:10000,
-    reconnectPeriod:3000
-  });
+  <script>
+    // Your Cloudflare Worker URL
+    const WORKER_URL =
+      "https://shop-curtain-backend.shari2018.workers.dev/";
 
-  client.on("connect",()=>{
-    connected=true;
-    enable(true);
-    status.textContent="Connected";
-    client.subscribe(statusTopic);
-  });
+    const statusBox = document.getElementById("status");
+    const commandButtons =
+      [...document.querySelectorAll("[data-command]")];
+    const pinButton = document.getElementById("pinButton");
 
-  client.on("message",(topic,msg)=>{
-    status.textContent="Connected • "+msg.toString();
-  });
+    let pin = sessionStorage.getItem("shopCurtainPin") || "";
 
-  client.on("reconnect",()=>{
-    connected=false;
-    enable(false);
-    status.textContent="Reconnecting...";
-  });
+    function setButtonsDisabled(disabled) {
+      commandButtons.forEach(button => {
+        button.disabled = disabled;
+      });
+    }
 
-  client.on("close",()=>{
-    connected=false;
-    enable(false);
-    status.textContent="Disconnected";
-  });
+    function askForPin() {
+      const entered = prompt("Enter your 4-digit SHOP CURTAIN PIN:");
 
-  client.on("error",()=>{
-    status.textContent="Connection failed. Check internet or MQTT password.";
-  });
-}else{
-  status.textContent="Reload to connect";
-}
+      if (entered === null) {
+        statusBox.textContent = "PIN required to send commands.";
+        return false;
+      }
 
-buttons.forEach(b=>{
-  b.addEventListener("click",()=>{
-    if(!connected)return;
-    client.publish(cmdTopic,b.dataset.cmd,{qos:0,retain:false},err=>{
-      status.textContent=err?"Send failed":"Sent "+b.dataset.cmd.toUpperCase();
+      if (!/^\d{4}$/.test(entered.trim())) {
+        statusBox.textContent = "PIN must contain exactly 4 digits.";
+        return false;
+      }
+
+      pin = entered.trim();
+      sessionStorage.setItem("shopCurtainPin", pin);
+      statusBox.textContent = "PIN entered. Ready to send commands.";
+      return true;
+    }
+
+    async function sendCommand(command) {
+      if (!pin && !askForPin()) return;
+
+      setButtonsDisabled(true);
+      statusBox.textContent = "Sending " + command.toUpperCase() + "...";
+
+      try {
+        const response = await fetch(WORKER_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            pin: pin,
+            command: command
+          })
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (response.ok && result.success === true) {
+          statusBox.textContent =
+            command.toUpperCase() + " command sent successfully.";
+        } else if (response.status === 401) {
+          sessionStorage.removeItem("shopCurtainPin");
+          pin = "";
+          statusBox.textContent = "Incorrect PIN. Please try again.";
+        } else {
+          statusBox.textContent =
+            result.message || ("Request failed: HTTP " + response.status);
+        }
+      } catch (error) {
+        statusBox.textContent =
+          "Connection error. Check internet and Worker settings.";
+        console.error("SHOP CURTAIN request failed:", error);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    commandButtons.forEach(button => {
+      button.addEventListener("click", () => {
+        sendCommand(button.dataset.command);
+      });
     });
-  });
-});
-</script>
+
+    pinButton.addEventListener("click", () => {
+      sessionStorage.removeItem("shopCurtainPin");
+      pin = "";
+      askForPin();
+    });
+
+    setButtonsDisabled(false);
+  </script>
 </body>
 </html>
